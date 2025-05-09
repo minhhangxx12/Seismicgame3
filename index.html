@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stone Man Shooting Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 600px;
+        }
+        #gameCanvas {
+            background-color: #87CEEB;
+            border: 3px solid #000;
+        }
+        #gameUI {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        #gameOver, #levelComplete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="gameUI">
+            <div>Level: <span id="level">1</span></div>
+            <div>Score: <span id="score">0</span></div>
+            <div>Time: <span id="timer">20</span></div>
+            <div>Enemies Left: <span id="enemiesLeft">5</span></div>
+            <div>Turns Left: <span id="turnsLeft">5</span></div>
+        </div>
+        <div id="gameOver">
+            <h2>Game Over</h2>
+            <p>Your final score: <span id="finalScore">0</span></p>
+            <button id="restartButton">Play Again</button>
+        </div>
+        <div id="levelComplete">
+            <h2>Level Complete!</h2>
+            <p>Get ready for level <span id="nextLevel">2</span></p>
+            <button id="nextLevelButton">Continue</button>
+        </div>
+    </div>
+
+    <script>
+        // Game setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverScreen = document.getElementById('gameOver');
+        const levelCompleteScreen = document.getElementById('levelComplete');
+        const restartButton = document.getElementById('restartButton');
+        const nextLevelButton = document.getElementById('nextLevelButton');
+
+        // Game state
+        let gameRunning = false;
+        let level = 1;
+        let score = 0;
+        let timeLeft = 20; // Shorter countdown timer
+        let enemiesRemaining = 5;
+        let gameLoopInterval;
+        let timerInterval;
+        let turnsLeft = 5; // Total of 5 turns
+        let bombTargets = []; // Array for bomb targets
+        let flashTimer = 0; // For visual feedback when losing a turn
+
+        // Stone Man character
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            width: 60,
+            height: 80,
+            speed: 5,
+            color: '#CD853F',
+            facingDirection: 0, // 0 = right, Math.PI = left
+            moving: {
+                left: false,
+                right: false,
+                up: false,
+                down: false
+            }
+        };
+
+        // Projectiles array
+        let projectiles = [];
+
+        // Enemy array
+        let enemies = [];
+
+        // Images
+        const playerImage = new Image();
+        // Stone man character from the image
+        playerImage.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMDAgMzAwIj48c3R5bGU+LnN0MHtmaWxsOiNDRDg1M0Y7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjQ7fS5zdDF7ZmlsbDojREVCODg3O3N0cm9rZTojMDAwO3N0cm9rZS13aWR0aDo0O30uc3Qye2ZpbGw6IzAwMDt9PC9zdHlsZT48ZyBpZD0iYm9keSI+PHJlY3QgY2xhc3M9InN0MCIgeD0iMTAwIiB5PSIxMDAiIHdpZHRoPSIxMDAiIGhlaWdodD0iODAiIHJ4PSIxMCIgcnk9IjEwIi8+PC9nPjxnIGlkPSJoZWFkIj48cG9seWdvbiBjbGFzcz0ic3QxIiBwb2ludHM9IjEwMCw2MCAxNDAsNjAgMTgwLDYwIDIwMCw4MCAxODAsMTAwIDE0MCwxMDAgMTAwLDEwMCA4MCw4MCIvPjxjaXJjbGUgY2xhc3M9InN0MiIgY3g9IjEyMCIgY3k9IjgwIiByPSI1Ii8+PGNpcmNsZSBjbGFzcz0ic3QyIiBjeD0iMTQwIiBjeT0iODAiIHI9IjUiLz48Y2lyY2xlIGNsYXNzPSJzdDIiIGN4PSIxNjAiIGN5PSI4MCIgcj0iNSIvPjxjaXJjbGUgY2xhc3M9InN0MiIgY3g9IjE4MCIgY3k9IjgwIiByPSI1Ii8+PC9nPjxnIGlkPSJhcm1zIj48cmVjdCBjbGFzcz0ic3QwIiB4PSI2MCIgeT0iMTEwIiB3aWR0aD0iNDAiIGhlaWdodD0iNjAiIHJ4PSIxMCIgcnk9IjEwIi8+PHJlY3QgY2xhc3M9InN0MCIgeD0iMjAwIiB5PSIxMTAiIHdpZHRoPSI0MCIgaGVpZ2h0PSI2MCIgcng9IjEwIiByeT0iMTAiLz48L2c+PGcgaWQ9ImxlZ3MiPjxyZWN0IGNsYXNzPSJzdDAiIHg9IjExMCIgeT0iMTgwIiB3aWR0aD0iMzAiIGhlaWdodD0iNjAiIHJ4PSIxMCIgcnk9IjEwIi8+PHJlY3QgY2xhc3M9InN0MCIgeD0iMTYwIiB5PSIxODAiIHdpZHRoPSIzMCIgaGVpZ2h0PSI2MCIgcng9IjEwIiByeT0iMTAiLz48L2c+PC9zdmc+';
+
+        // Initialize game when player image is loaded
+        playerImage.onload = function() {
+            initGame();
+        };
+
+        function initGame() {
+            // Reset game state
+            level = 1;
+            score = 0;
+            timeLeft = 20; // Shorter countdown
+            turnsLeft = 5;  // Reset turns
+            enemiesRemaining = Math.min(5, turnsLeft); // Never more enemies than turns
+            projectiles = [];
+            enemies = [];
+            bombTargets = []; // Reset bomb targets
+            powerUps = []; // Reset power-ups
+            flashTimer = 0;
+            hitStreak = 0; // Reset hit streak
+            multiplier = 1; // Reset multiplier
+            
+            // Update UI
+            updateUI();
+            
+            // Clear any existing intervals
+            clearInterval(gameLoopInterval);
+            clearInterval(timerInterval);
+            
+            // Reset screens
+            gameOverScreen.style.display = 'none';
+            levelCompleteScreen.style.display = 'none';
+            
+            // Create enemies and bomb targets for level 1
+            createEnemies();
+            createBombTargets();
+            
+            // Start game loop
+            gameRunning = true;
+            gameLoopInterval = setInterval(gameLoop, 1000 / 60); // 60 FPS
+            timerInterval = setInterval(updateTimer, 1000);
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            // Log game state for debugging
+            console.log("Game initialized:", {
+                level,
+                turnsLeft,
+                enemiesRemaining,
+                gameRunning
+            });
+        }
+
+        function setupEventListeners() {
+            // Keyboard controls
+            document.addEventListener('keydown', function(e) {
+                handleKeyDown(e.key);
+            });
+            
+            document.addEventListener('keyup', function(e) {
+                handleKeyUp(e.key);
+            });
+            
+            // Mouse click for shooting
+            canvas.addEventListener('click', function(e) {
+                if (gameRunning && turnsLeft > 0) { // Only shoot if turns left
+                    const rect = canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    shoot(mouseX, mouseY);
+                    // Decrease turns left
+                    turnsLeft--;
+                    updateUI();
+                    
+                    // Only check if out of turns AFTER the projectile has had time to hit targets
+                    // This prevents immediate game over when shooting the last turn
+                    setTimeout(() => {
+                        if (turnsLeft <= 0 && enemiesRemaining > 0 && gameRunning) {
+                            gameOver();
+                        }
+                    }, 1000); // Give 1 second for projectile to hit
+                }
+            });
+            
+            // Touch events for mobile
+            canvas.addEventListener('touchstart', function(e) {
+                if (gameRunning && turnsLeft > 0) { // Only shoot if turns left
+                    e.preventDefault();
+                    const rect = canvas.getBoundingClientRect();
+                    const touchX = e.touches[0].clientX - rect.left;
+                    const touchY = e.touches[0].clientY - rect.top;
+                    shoot(touchX, touchY);
+                    // Decrease turns left
+                    turnsLeft--;
+                    updateUI();
+                    
+                    // Only check if out of turns AFTER the projectile has had time to hit targets
+                    setTimeout(() => {
+                        if (turnsLeft <= 0 && enemiesRemaining > 0 && gameRunning) {
+                            gameOver();
+                        }
+                    }, 1000); // Give 1 second for projectile to hit
+                }
+            });
+            
+            // Button events
+            restartButton.addEventListener('click', initGame);
+            nextLevelButton.addEventListener('click', startNextLevel);
+        }
+
+        function handleKeyDown(key) {
+            switch(key) {
+                case 'ArrowLeft':
+                case 'a':
+                    player.moving.left = true;
+                    player.facingDirection = Math.PI;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    player.moving.right = true;
+                    player.facingDirection = 0;
+                    break;
+                case 'ArrowUp':
+                case 'w':
+                    player.moving.up = true;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    player.moving.down = true;
+                    break;
+                case ' ':
+                    // Shoot in direction player is facing if turns left
+                    if (turnsLeft > 0) {
+                        const shootX = player.facingDirection === 0 ? 
+                            player.x + 100 : player.x - 100;
+                        shoot(shootX, player.y);
+                        
+                        // Decrease turns left
+                        turnsLeft--;
+                        updateUI();
+                        
+                        // Only check if out of turns AFTER the projectile has had time to hit targets
+                        setTimeout(() => {
+                            if (turnsLeft <= 0 && enemiesRemaining > 0 && gameRunning) {
+                                gameOver();
+                            }
+                        }, 1000); // Give 1 second for projectile to hit
+                    }
+                    break;
+            }
+        }
+
+        function handleKeyUp(key) {
+            switch(key) {
+                case 'ArrowLeft':
+                case 'a':
+                    player.moving.left = false;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    player.moving.right = false;
+                    break;
+                case 'ArrowUp':
+                case 'w':
+                    player.moving.up = false;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    player.moving.down = false;
+                    break;
+            }
+        }
+
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update player position
+            updatePlayerPosition();
+            
+            // Draw ground
+            drawGround();
+            
+            // Draw player
+            drawPlayer();
+            
+            // Update and draw projectiles
+            updateProjectiles();
+            
+            // Update and draw enemies
+            updateEnemies();
+            
+            // Update and draw bomb targets
+            updateBombTargets();
+            
+            // Handle turn loss feedback
+            if (flashTimer > 0) {
+                ctx.fillStyle = `rgba(255, 0, 0, ${flashTimer / 30})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                flashTimer--;
+            }
+            
+            // Check for level completion
+            if (enemiesRemaining <= 0 && gameRunning) {
+                levelComplete();
+            }
+        }
+
+        function updatePlayerPosition() {
+            // Update position based on movement state
+            if (player.moving.left && player.x > player.width / 2) {
+                player.x -= player.speed;
+            }
+            if (player.moving.right && player.x < canvas.width - player.width / 2) {
+                player.x += player.speed;
+            }
+            if (player.moving.up && player.y > canvas.height / 2) {
+                player.y -= player.speed;
+            }
+            if (player.moving.down && player.y < canvas.height - player.height / 2) {
+                player.y += player.speed;
+            }
+        }
+
+        function drawGround() {
+            // Draw ground
+            ctx.fillStyle = '#C2B280'; // Sand color
+            ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+            
+            // Draw grass tufts
+            ctx.fillStyle = '#4CAF50';
+            for (let i = 0; i < 10; i++) {
+                const x = Math.random() * canvas.width;
+                ctx.beginPath();
+                ctx.arc(x, canvas.height - 40, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawPlayer() {
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            
+            // Flip the player based on facing direction
+            if (player.facingDirection === Math.PI) {
+                ctx.scale(-1, 1);
+            }
+            
+            // Draw the player image
+            ctx.drawImage(playerImage, -player.width / 2, -player.height / 2, player.width, player.height);
+            
+            ctx.restore();
+        }
+
+        function shoot(targetX, targetY) {
+            // Calculate direction
+            const dx = targetX - player.x;
+            const dy = targetY - player.y;
+            const angle = Math.atan2(dy, dx);
+            
+            // Create stone projectile
+            projectiles.push({
+                x: player.x,
+                y: player.y - 10,
+                radius: 8,
+                speed: 10,
+                angle: angle,
+                color: '#8B4513', // Saddle brown color for stone projectile
+                isStone: true
+            });
+        }
+
+        function updateProjectiles() {
+            // Update positions
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                
+                // Skip if projectile no longer exists
+                if (!p) continue;
+                
+                // Move projectile
+                p.x += Math.cos(p.angle) * p.speed;
+                p.y += Math.sin(p.angle) * p.speed;
+                
+                // Draw stone projectile
+                if (p.isStone) {
+                    // Draw a small stone
+                    ctx.fillStyle = p.color;
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                    
+                    // Draw stone (irregular polygon)
+                    ctx.beginPath();
+                    const sides = 5; // Pentagon for stone shape
+                    const jitter = 0.3; // Irregularity factor
+                    
+                    for (let j = 0; j < sides; j++) {
+                        const angle = j * 2 * Math.PI / sides;
+                        const radiusVar = p.radius * (1 + (Math.random() - 0.5) * jitter);
+                        const x = p.x + radiusVar * Math.cos(angle);
+                        const y = p.y + radiusVar * Math.sin(angle);
+                        
+                        if (j === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                } else {
+                    // Default circular projectile as fallback
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                let hitSomething = false;
+                
+                // Check for collision with enemies
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j];
+                    const dx = p.x - e.x;
+                    const dy = p.y - e.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < p.radius + e.radius) {
+                        // Hit! Remove the enemy and projectile
+                        enemies.splice(j, 1);
+                        hitSomething = true;
+                        
+                        // Update score and enemies left
+                        score += 10 * level;
+                        enemiesRemaining--;
+                        updateUI();
+                        break;
+                    }
+                }
+                
+                // Check for collision with bomb targets
+                for (let j = bombTargets.length - 1; j >= 0; j--) {
+                    const b = bombTargets[j];
+                    // Skip if already exploding
+                    if (b.exploding) continue;
+                    
+                    const dx = p.x - b.x;
+                    const dy = p.y - b.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < p.radius + b.radius) {
+                        // Hit a bomb! Start explosion
+                        b.exploding = true;
+                        hitSomething = true;
+                        break;
+                    }
+                }
+                
+                // Remove if hit something or off screen
+                if (hitSomething || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+                    projectiles.splice(i, 1);
+                }
+            }
+        }
+
+        function createEnemies() {
+            // Clear existing enemies
+            enemies = [];
+            
+            // Calculate number of enemies based on level (more enemies for harder difficulty)
+            // Ensure there are never more enemies than turns available (fixing the logic issue)
+            enemiesRemaining = Math.min(5 + (level - 1) * 2, turnsLeft);
+            
+            // Stone colors for enemies
+            const stoneColors = [
+                '#826644', // Brown
+                '#A9A9A9', // Dark Gray
+                '#D3D3D3', // Light Gray
+                '#B87333', // Copper
+                '#CD7F32', // Bronze
+                '#C4A484', // Tan
+                '#967969', // Taupe
+                '#8B4513', // Saddle Brown
+                '#708090', // Slate Gray
+                '#6D6552'  // Dark Khaki
+            ];
+            
+            // Create new enemies
+            for (let i = 0; i < enemiesRemaining; i++) {
+                const enemySize = 20 + Math.random() * 20;
+                const colorIndex = Math.floor(Math.random() * stoneColors.length);
+                enemies.push({
+                    x: Math.random() * (canvas.width - 100) + 50,
+                    y: Math.random() * 200 + 50,
+                    radius: enemySize,
+                    dx: (1 + level * 0.5) * (Math.random() - 0.5) * 2, // Adjusted movement speed
+                    dy: (level > 2) ? (Math.random() - 0.5) * level * 0.5 : 0, // Reduced vertical movement
+                    color: stoneColors[colorIndex],
+                    hitPoints: Math.ceil(level / 2)
+                });
+            }
+            
+            updateUI();
+        }
+
+        function createBombTargets() {
+            // Clear existing bomb targets
+            bombTargets = [];
+            
+            // Number of bomb targets based on level
+            const bombCount = Math.min(3 + Math.floor(level / 2), 8);
+            
+            // Create bomb targets
+            for (let i = 0; i < bombCount; i++) {
+                bombTargets.push({
+                    x: Math.random() * (canvas.width - 100) + 50,
+                    y: Math.random() * 200 + 50,
+                    radius: 25,
+                    dx: (1 + level * 0.3) * (Math.random() - 0.5),
+                    dy: (Math.random() - 0.5) * level * 0.2,
+                    exploding: false,
+                    explosionRadius: 0,
+                    explosionMaxRadius: 150,
+                    explosionSpeed: 5
+                });
+            }
+        }
+
+        function updateEnemies() {
+            // Update and draw enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                
+                // Update position
+                e.x += e.dx;
+                e.y += e.dy;
+                
+                // Bounce off walls
+                if (e.x < e.radius || e.x > canvas.width - e.radius) {
+                    e.dx = -e.dx;
+                }
+                
+                // Bounce off top and bottom (for enemies that move vertically)
+                if (e.y < e.radius || e.y > canvas.height / 2) {
+                    e.dy = -e.dy;
+                }
+                
+                // Draw stone figure enemy
+                // Body
+                ctx.fillStyle = e.color;
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                
+                // Draw stone figure body (hexagon)
+                ctx.beginPath();
+                const sides = 6;
+                for (let j = 0; j < sides; j++) {
+                    const angle = j * 2 * Math.PI / sides;
+                    const x = e.x + e.radius * Math.cos(angle);
+                    const y = e.y + e.radius * Math.sin(angle);
+                    if (j === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Draw 4 dots for eyes (like in the original image)
+                ctx.fillStyle = '#000';
+                const dotSize = e.radius / 10;
+                const dotSpacing = e.radius / 4;
+                
+                // Draw 4 dots in a row
+                for (let d = 0; d < 4; d++) {
+                    const dotX = e.x - (dotSpacing * 1.5) + (d * dotSpacing);
+                    const dotY = e.y - dotSize;
+                    ctx.beginPath();
+                    ctx.arc(dotX, dotY, dotSize, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function updateBombTargets() {
+            // Update and draw bomb targets
+            for (let i = bombTargets.length - 1; i >= 0; i--) {
+                const b = bombTargets[i];
+                
+                if (b.exploding) {
+                    // Handle explosion
+                    b.explosionRadius += b.explosionSpeed;
+                    
+                    // Draw explosion
+                    const gradient = ctx.createRadialGradient(
+                        b.x, b.y, 0,
+                        b.x, b.y, b.explosionRadius
+                    );
+                    gradient.addColorStop(0, 'rgba(255, 255, 0, 0.8)');
+                    gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.5)');
+                    gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, b.explosionRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Check for collision with enemies
+                    for (let j = enemies.length - 1; j >= 0; j--) {
+                        const e = enemies[j];
+                        const dx = b.x - e.x;
+                        const dy = b.y - e.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < b.explosionRadius + e.radius) {
+                            // Hit by explosion! Remove the enemy
+                            enemies.splice(j, 1);
+                            
+                            // Update score and enemies left
+                            score += 5 * level;
+                            enemiesRemaining--;
+                            updateUI();
+                        }
+                    }
+                    
+                    // Check for collision with player (lose a turn)
+                    const playerDx = b.x - player.x;
+                    const playerDy = b.y - player.y;
+                    const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+                    
+                    if (playerDistance < b.explosionRadius + player.width / 2 && flashTimer === 0) {
+                        // Player hit by explosion! Lose a turn
+                        turnsLeft = Math.max(0, turnsLeft - 1);
+                        updateUI();
+                        flashTimer = 30; // Visual feedback
+                        
+                        // Check if out of turns
+                        if (turnsLeft <= 0 && enemiesRemaining > 0) {
+                            gameOver();
+                        }
+                    }
+                    
+                    // Remove bomb when explosion is complete
+                    if (b.explosionRadius >= b.explosionMaxRadius) {
+                        bombTargets.splice(i, 1);
+                    }
+                } else {
+                    // Update position
+                    b.x += b.dx;
+                    b.y += b.dy;
+                    
+                    // Bounce off walls
+                    if (b.x < b.radius || b.x > canvas.width - b.radius) {
+                        b.dx = -b.dx;
+                    }
+                    
+                    // Bounce off top and bottom
+                    if (b.y < b.radius || b.y > canvas.height / 2) {
+                        b.dy = -b.dy;
+                    }
+                    
+                    // Draw bomb
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Draw bomb fuse
+                    ctx.strokeStyle = '#FFA500';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(b.x, b.y - b.radius);
+                    ctx.quadraticCurveTo(
+                        b.x + b.radius, b.y - b.radius * 2,
+                        b.x + b.radius * 1.5, b.y - b.radius * 1.5
+                    );
+                    ctx.stroke();
+                    
+                    // Draw spark at end of fuse (blinking)
+                    if (Math.random() > 0.5) {
+                        ctx.fillStyle = '#FFFF00';
+                        ctx.beginPath();
+                        ctx.arc(
+                            b.x + b.radius * 1.5,
+                            b.y - b.radius * 1.5,
+                            3, 0, Math.PI * 2
+                        );
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+
+        function updateTimer() {
+            if (gameRunning) {
+                timeLeft--;
+                
+                // Update timer display
+                document.getElementById('timer').textContent = timeLeft;
+                
+                // Check if time is up
+                if (timeLeft <= 0) {
+                    if (enemiesRemaining > 0) {
+                        // Game over if enemies still remain
+                        gameOver();
+                    } else {
+                        // Level complete if all enemies destroyed
+                        levelComplete();
+                    }
+                }
+            }
+        }
+
+        function updateUI() {
+            // Update UI elements
+            document.getElementById('level').textContent = level;
+            document.getElementById('score').textContent = score;
+            document.getElementById('timer').textContent = timeLeft;
+            document.getElementById('enemiesLeft').textContent = enemiesRemaining;
+            document.getElementById('turnsLeft').textContent = turnsLeft;
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('nextLevel').textContent = level + 1;
+        }
+
+        function gameOver() {
+            // Stop the game
+            gameRunning = false;
+            clearInterval(gameLoopInterval);
+            clearInterval(timerInterval);
+            
+            // Show game over screen
+            gameOverScreen.style.display = 'block';
+            
+            // Update final score
+            document.getElementById('finalScore').textContent = score;
+        }
+
+        function levelComplete() {
+            // Stop the current level
+            gameRunning = false;
+            clearInterval(gameLoopInterval);
+            clearInterval(timerInterval);
+            
+            // Show level complete screen
+            levelCompleteScreen.style.display = 'block';
+            
+            // Update next level display
+            document.getElementById('nextLevel').textContent = level + 1;
+        }
+
+        function startNextLevel() {
+            // Increase level
+            level++;
+            
+            // Reset level-specific game state
+            timeLeft = 20 + level * 5; // More time for higher levels
+            enemiesRemaining = 5 + (level - 1) * 3;
+            turnsLeft = 5 + Math.floor(level / 2); // More turns for higher levels
+            projectiles = [];
+            enemies = [];
+            bombTargets = [];
+            flashTimer = 0;
+            
+            // Hide level complete screen
+            levelCompleteScreen.style.display = 'none';
+            
+            // Update UI
+            updateUI();
+            
+            // Create new enemies and bomb targets
+            createEnemies();
+            createBombTargets();
+            
+            // Start game loop
+            gameRunning = true;
+            gameLoopInterval = setInterval(gameLoop, 1000 / 60);
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+
+        // Add power-up items (starting from level 3)
+        function createPowerUps() {
+            if (level >= 3) {
+                // Create power-ups based on level
+                const powerUpCount = Math.min(Math.floor(level / 2), 3);
+                
+                for (let i = 0; i < powerUpCount; i++) {
+                    const type = Math.random() < 0.5 ? 'extraTurn' : 'extraTime';
+                    
+                    powerUps.push({
+                        x: Math.random() * (canvas.width - 100) + 50,
+                        y: Math.random() * 200 + 50,
+                        radius: 15,
+                        type: type,
+                        collected: false,
+                        pulseValue: 0,
+                        pulseDirection: 0.05
+                    });
+                }
+            }
+        }
+
+        // Update power-ups
+        function updatePowerUps() {
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                const p = powerUps[i];
+                
+                if (!p.collected) {
+                    // Pulsing effect
+                    p.pulseValue += p.pulseDirection;
+                    if (p.pulseValue >= 1 || p.pulseValue <= 0) {
+                        p.pulseDirection *= -1;
+                    }
+                    
+                    // Draw power-up
+                    ctx.fillStyle = p.type === 'extraTurn' ? 
+                        `rgba(0, 255, 0, ${0.5 + p.pulseValue * 0.5})` : 
+                        `rgba(0, 100, 255, ${0.5 + p.pulseValue * 0.5})`;
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius * (0.8 + p.pulseValue * 0.2), 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Draw icon
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(p.type === 'extraTurn' ? '+1' : 'T+', p.x, p.y);
+                    
+                    // Check for collision with player
+                    const dx = p.x - player.x;
+                    const dy = p.y - player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < p.radius + player.width / 2) {
+                        // Collect power-up
+                        p.collected = true;
+                        
+                        // Apply effect
+                        if (p.type === 'extraTurn') {
+                            turnsLeft += 1;
+                        } else if (p.type === 'extraTime') {
+                            timeLeft += 10;
+                        }
+                        
+                        // Update UI
+                        updateUI();
+                        
+                        // Remove power-up
+                        powerUps.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // Initialize the power-ups array
+        let powerUps = [];
+
+        // Add game difficulty adjustment
+        function adjustDifficulty() {
+            // Adjust enemy speed based on level
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                
+                // Increase speed for higher levels
+                e.dx *= 1 + (level * 0.05);
+                
+                // Add vertical movement for levels above 3
+                if (level > 3 && Math.random() < 0.3 && e.dy === 0) {
+                    e.dy = (Math.random() - 0.5) * level * 0.5;
+                }
+            }
+            
+            // Add more bomb targets for higher levels
+            if (level > 2 && bombTargets.length < 5) {
+                const additionalBombs = Math.min(2, 5 - bombTargets.length);
+                
+                for (let i = 0; i < additionalBombs; i++) {
+                    bombTargets.push({
+                        x: Math.random() * (canvas.width - 100) + 50,
+                        y: Math.random() * 200 + 50,
+                        radius: 25,
+                        dx: (1 + level * 0.3) * (Math.random() - 0.5),
+                        dy: (Math.random() - 0.5) * level * 0.2,
+                        exploding: false,
+                        explosionRadius: 0,
+                        explosionMaxRadius: 150,
+                        explosionSpeed: 5
+                    });
+                }
+            }
+        }
+
+        // Modify the startNextLevel function to include power-ups and difficulty adjustment
+        function startNextLevel() {
+            // Increase level
+            level++;
+            
+            // Reset level-specific game state
+            timeLeft = 20 + level * 5; // More time for higher levels
+            enemiesRemaining = 5 + (level - 1) * 3;
+            turnsLeft = 5 + Math.floor(level / 2); // More turns for higher levels
+            projectiles = [];
+            enemies = [];
+            bombTargets = [];
+            powerUps = [];
+            flashTimer = 0;
+            
+            // Hide level complete screen
+            levelCompleteScreen.style.display = 'none';
+            
+            // Update UI
+            updateUI();
+            
+            // Create new enemies and bomb targets
+            createEnemies();
+            createBombTargets();
+            
+            // Create power-ups for levels 3+
+            createPowerUps();
+            
+            // Adjust difficulty
+            adjustDifficulty();
+            
+            // Start game loop
+            gameRunning = true;
+            gameLoopInterval = setInterval(gameLoop, 1000 / 60);
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+
+        // Update the game loop to include power-ups
+        function gameLoop() {
+            // Only run if game is actually running
+            if (!gameRunning) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update player position
+            updatePlayerPosition();
+            
+            // Draw ground
+            drawGround();
+            
+            // Draw player
+            drawPlayer();
+            
+            // Update and draw projectiles
+            updateProjectiles();
+            
+            // Update and draw enemies
+            updateEnemies();
+            
+            // Update and draw bomb targets
+            updateBombTargets();
+            
+            // Update and draw power-ups
+            updatePowerUps();
+            
+            // Update and draw floating texts
+            updateFloatingTexts();
+            
+            // Display multiplier if > 1
+            if (multiplier > 1) {
+                ctx.fillStyle = '#FFFF00';
+                ctx.font = '18px Arial';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`Combo: x${multiplier}`, canvas.width - 10, 10);
+                ctx.fillText(`Streak: ${hitStreak}`, canvas.width - 10, 35);
+            }
+            
+            // Handle turn loss feedback
+            if (flashTimer > 0) {
+                ctx.fillStyle = `rgba(255, 0, 0, ${flashTimer / 30})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                flashTimer--;
+            }
+            
+            // Check for level completion
+            if (enemiesRemaining <= 0 && gameRunning) {
+                levelComplete();
+            }
+            
+            // Debug info
+            if (level === 1) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(`Enemies: ${enemiesRemaining}, Turns: ${turnsLeft}`, 10, canvas.height - 5);
+            }
+        }
+
+        // Add a welcome screen / instructions
+        const welcomeScreen = document.createElement('div');
+        welcomeScreen.style.position = 'absolute';
+        welcomeScreen.style.top = '50%';
+        welcomeScreen.style.left = '50%';
+        welcomeScreen.style.transform = 'translate(-50%, -50%)';
+        welcomeScreen.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        welcomeScreen.style.color = 'white';
+        welcomeScreen.style.padding = '20px';
+        welcomeScreen.style.borderRadius = '10px';
+        welcomeScreen.style.textAlign = 'center';
+        welcomeScreen.style.zIndex = '100';
+        welcomeScreen.innerHTML = `
+            <h2>Stone Man Shooting Game</h2>
+            <p>Destroy all the stone enemies before time runs out!</p>
+            <p>Controls:</p>
+            <ul style="text-align: left; list-style-type: none;">
+                <li>Move: Arrow Keys or WASD</li>
+                <li>Shoot: Click/Tap or Spacebar</li>
+            </ul>
+            <p>You have limited turns (shots) per level!</p>
+            <p>Hit bombs to create explosions that destroy nearby enemies</p>
+            <p>Collect power-ups for extra turns or time (levels 3+)</p>
+            <button id="startGameButton">Start Game</button>
+        `;
+        
+        document.getElementById('gameContainer').appendChild(welcomeScreen);
+        
+        // Initialize game when start button is clicked
+        document.getElementById('startGameButton').addEventListener('click', function() {
+            welcomeScreen.style.display = 'none';
+            initGame();
+        });
+
+        // Prevent the game from starting automatically
+        playerImage.onload = function() {
+            // Do nothing on load - wait for start button
+        };
+
+        // Add sound effects (optional)
+        const shootSound = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
+        const explosionSound = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
+        const powerUpSound = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
+        
+        // Modify shoot function to include sound
+        function shoot(targetX, targetY) {
+            // Play sound
+            shootSound.currentTime = 0;
+            shootSound.play().catch(e => console.log("Audio play failed:", e));
+            
+            // Calculate direction
+            const dx = targetX - player.x;
+            const dy = targetY - player.y;
+            const angle = Math.atan2(dy, dx);
+            
+            // Create stone projectile
+            projectiles.push({
+                x: player.x,
+                y: player.y - 10,
+                radius: 8,
+                speed: 10,
+                angle: angle,
+                color: '#8B4513', // Saddle brown color for stone projectile
+                isStone: true
+            });
+        }
+
+        // Add a scoring system with multipliers for consecutive hits
+        let hitStreak = 0;
+        let multiplier = 1;
+
+        // Update the collision detection in updateProjectiles()
+        function updateProjectiles() {
+            // Update positions
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                
+                // Skip if projectile no longer exists
+                if (!p) continue;
+                
+                // Move projectile
+                p.x += Math.cos(p.angle) * p.speed;
+                p.y += Math.sin(p.angle) * p.speed;
+                
+                // Draw stone projectile
+                if (p.isStone) {
+                    // Draw a small stone
+                    ctx.fillStyle = p.color;
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                    
+                    // Draw stone (irregular polygon)
+                    ctx.beginPath();
+                    const sides = 5; // Pentagon for stone shape
+                    const jitter = 0.3; // Irregularity factor
+                    
+                    for (let j = 0; j < sides; j++) {
+                        const angle = j * 2 * Math.PI / sides;
+                        const radiusVar = p.radius * (1 + (Math.random() - 0.5) * jitter);
+                        const x = p.x + radiusVar * Math.cos(angle);
+                        const y = p.y + radiusVar * Math.sin(angle);
+                        
+                        if (j === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                } else {
+                    // Default circular projectile as fallback
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                let hitSomething = false;
+                
+                // Check for collision with enemies
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j];
+                    const dx = p.x - e.x;
+                    const dy = p.y - e.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < p.radius + e.radius) {
+                        // Hit! Remove the enemy and projectile
+                        enemies.splice(j, 1);
+                        hitSomething = true;
+                        
+                        // Update hit streak and multiplier
+                        hitStreak++;
+                        if (hitStreak >= 3) {
+                            multiplier = 2;
+                        }
+                        if (hitStreak >= 5) {
+                            multiplier = 3;
+                        }
+                        
+                        // Update score and enemies left
+                        score += 10 * level * multiplier;
+                        enemiesRemaining--;
+                        updateUI();
+                        
+                        // Show floating score text
+                        showFloatingText(e.x, e.y, `+${10 * level * multiplier}`, '#FFF');
+                        
+                        break;
+                    }
+                }
+                
+                // Check for collision with bomb targets
+                for (let j = bombTargets.length - 1; j >= 0; j--) {
+                    const b = bombTargets[j];
+                    // Skip if already exploding
+                    if (b.exploding) continue;
+                    
+                    const dx = p.x - b.x;
+                    const dy = p.y - b.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < p.radius + b.radius) {
+                        // Hit a bomb! Start explosion
+                        b.exploding = true;
+                        hitSomething = true;
+                        
+                        // Play explosion sound
+                        explosionSound.currentTime = 0;
+                        explosionSound.play().catch(e => console.log("Audio play failed:", e));
+                        
+                        break;
+                    }
+                }
+                
+                // Remove if hit something or off screen
+                if (hitSomething || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+                    projectiles.splice(i, 1);
+                    
+                    // Reset hit streak if missed (no hit)
+                    if (!hitSomething) {
+                        hitStreak = 0;
+                        multiplier = 1;
+                    }
+                }
+            }
+        }
+
+        // Array to store floating text objects
+        let floatingTexts = [];
+        
+        // Function to show floating text (for score, etc.)
+        function showFloatingText(x, y, text, color) {
+            floatingTexts.push({
+                x: x,
+                y: y,
+                text: text,
+                color: color || '#FFFFFF',
+                alpha: 1,
+                size: 20,
+                speed: 2,
+                lifetime: 60 // frames
+            });
+        }
+        
+        // Function to update and draw floating texts
+        function updateFloatingTexts() {
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                
+                // Update
+                ft.y -= ft.speed;
+                ft.lifetime--;
+                ft.alpha = ft.lifetime / 60;
+                
+                // Draw
+                ctx.fillStyle = `rgba(255, 255, 255, ${ft.alpha})`;
+                ctx.strokeStyle = `rgba(0, 0, 0, ${ft.alpha})`;
+                ctx.font = `${ft.size}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.strokeText(ft.text, ft.x, ft.y);
+                ctx.fillText(ft.text, ft.x, ft.y);
+                
+                // Remove if expired
+                if (ft.lifetime <= 0) {
+                    floatingTexts.splice(i, 1);
+                }
+            }
+        }
+
+        // Initialize game
+        // (Now started by the start button)
+    </script>
+</body>
+</html>
